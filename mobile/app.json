@@ -12,6 +12,9 @@
       "backgroundColor": "#F5EEE6"
     },
     "ios": {
+      "infoPlist": {
+        "NSCameraUsageDescription": "Ung dung can quyen camera de chup anh khoan chi ngay khi mo app."
+      },
       "supportsTablet": true
     },
     "android": {
@@ -21,11 +24,22 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "locketbudget"
+    "scheme": "locketbudget",
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Ung dung can quyen camera de chup anh khoan chi ngay khi mo app."
+        }
+      ]
+    ]
   }
 }

@@ -1,6 +1,6 @@
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { ScreenShell } from '../components/ScreenShell';
 import { foundationDecisions, phaseOnePriority, phaseZeroOutputs } from '../data/projectInfo';
 import type { AppTabParamList } from '../navigation/types';
@@ -13,7 +13,13 @@ import { colors } from '../theme/colors';
 type Props = BottomTabScreenProps<AppTabParamList, 'Profile'>;
 
 export function ProfileScreen(_: Props) {
-  const { user, expenses, signOut } = useSession();
+  const {
+    user,
+    expenses,
+    preferences,
+    setAndroidFrontCameraMirrorFixEnabled,
+    signOut,
+  } = useSession();
   const totals = getPeriodTotals(expenses);
 
   return (
@@ -66,6 +72,34 @@ export function ProfileScreen(_: Props) {
           </Text>
         ))}
       </View>
+
+      {Platform.OS === 'android' ? (
+        <>
+          <Text style={styles.sectionTitle}>Camera settings</Text>
+          <View style={styles.blockCard}>
+            <View style={styles.preferenceRow}>
+              <View style={styles.preferenceCopy}>
+                <Text style={styles.preferenceLabel}>Fix front camera mirror</Text>
+                <Text style={styles.preferenceNote}>
+                  Use this if the Android front camera preview or saved photo still looks flipped.
+                </Text>
+              </View>
+
+              <Switch
+                onValueChange={(value) => {
+                  void setAndroidFrontCameraMirrorFixEnabled(value);
+                }}
+                thumbColor={preferences.androidFrontCameraMirrorFixEnabled ? colors.white : '#F4F4F5'}
+                trackColor={{
+                  false: colors.border,
+                  true: colors.accentStrong,
+                }}
+                value={preferences.androidFrontCameraMirrorFixEnabled}
+              />
+            </View>
+          </View>
+        </>
+      ) : null}
 
       <Pressable
         onPress={() => {
@@ -169,6 +203,25 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   decisionNote: {
+    color: colors.textSecondary,
+    fontSize: typography.body,
+    lineHeight: 20,
+  },
+  preferenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  preferenceCopy: {
+    flex: 1,
+  },
+  preferenceLabel: {
+    color: colors.textPrimary,
+    fontSize: typography.bodyLarge,
+    fontWeight: '700',
+    marginBottom: spacing.xs,
+  },
+  preferenceNote: {
     color: colors.textSecondary,
     fontSize: typography.body,
     lineHeight: 20,

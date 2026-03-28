@@ -19,6 +19,7 @@ export type RootStackParamList = {
   AddExpense:
     | {
         expenseId?: string;
+        prefilledImageUri?: string;
       }
     | undefined;
   ExpenseDetail: {

@@ -46,6 +46,10 @@ export interface ExpenseDraft {
   occurredAt: string;
 }
 
+export interface AppPreferences {
+  androidFrontCameraMirrorFixEnabled: boolean;
+}
+
 export interface CategorySummary {
   categoryId: ExpenseCategoryId;
   label: string;

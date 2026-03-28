@@ -61,8 +61,8 @@ function AppTabs() {
           const iconName =
             route.name === 'Home'
               ? focused
-                ? 'sparkles'
-                : 'sparkles-outline'
+                ? 'camera'
+                : 'camera-outline'
               : route.name === 'Timeline'
                 ? focused
                   ? 'images'
@@ -77,20 +77,44 @@ function AppTabs() {
 
           return <Ionicons color={color} name={iconName} size={size} />;
         },
-        headerRight: () => (
-          <Pressable
-            onPress={() => navigation.getParent()?.navigate('AddExpense')}
-            style={styles.headerButton}
-          >
-            <Ionicons color={colors.textPrimary} name="add-circle-outline" size={24} />
-          </Pressable>
-        ),
+        headerRight:
+          route.name === 'Home'
+            ? undefined
+            : () => (
+                <Pressable
+                  onPress={() => navigation.getParent()?.navigate('AddExpense')}
+                  style={styles.headerButton}
+                >
+                  <Ionicons color={colors.textPrimary} name="add-circle-outline" size={24} />
+                </Pressable>
+              ),
       })}
     >
-      <Tab.Screen component={HomeScreen} name="Home" options={{ title: 'Home' }} />
-      <Tab.Screen component={TimelineScreen} name="Timeline" options={{ title: 'Timeline' }} />
-      <Tab.Screen component={StatsScreen} name="Stats" options={{ title: 'Stats' }} />
-      <Tab.Screen component={ProfileScreen} name="Profile" options={{ title: 'Profile' }} />
+      <Tab.Screen
+        component={HomeScreen}
+        name="Home"
+        options={{
+          headerShown: false,
+          tabBarLabel: 'Capture',
+          tabBarStyle: { display: 'none' },
+          title: 'Capture',
+        }}
+      />
+      <Tab.Screen
+        component={TimelineScreen}
+        name="Timeline"
+        options={{ tabBarLabel: 'Timeline', title: 'Timeline' }}
+      />
+      <Tab.Screen
+        component={StatsScreen}
+        name="Stats"
+        options={{ tabBarLabel: 'Stats', title: 'Stats' }}
+      />
+      <Tab.Screen
+        component={ProfileScreen}
+        name="Profile"
+        options={{ tabBarLabel: 'Profile', title: 'Profile' }}
+      />
     </Tab.Navigator>
   );
 }
@@ -99,7 +123,7 @@ function BootstrapScreen() {
   return (
     <View style={styles.bootstrapScreen}>
       <ActivityIndicator color={colors.accentStrong} size="large" />
-      <Text style={styles.bootstrapText}>Dang tai du lieu local...</Text>
+      <Text style={styles.bootstrapText}>Loading local data...</Text>
     </View>
   );
 }
@@ -127,7 +151,7 @@ export function RootNavigator() {
               component={AddExpenseScreen}
               name="AddExpense"
               options={({ route }) => ({
-                title: route.params?.expenseId ? 'Edit Expense' : 'Add Expense',
+                title: route.params?.expenseId ? 'Edit expense' : 'Add expense',
                 presentation: 'modal',
                 headerStyle: { backgroundColor: colors.surface },
                 headerShadowVisible: false,
@@ -138,7 +162,7 @@ export function RootNavigator() {
               component={ExpenseDetailScreen}
               name="ExpenseDetail"
               options={{
-                title: 'Expense Detail',
+                title: 'Expense details',
                 headerStyle: { backgroundColor: colors.surface },
                 headerShadowVisible: false,
                 headerTintColor: colors.textPrimary,

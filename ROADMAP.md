@@ -17,6 +17,8 @@ Tai lieu nay dung de bam sat qua trinh thuc hien du an theo tung giai doan. Nguy
 | Phase 1 | Hoan thanh MVP photo-first expense tracker | Auth, add expense, timeline, detail, edit/delete, stats |
 | Phase 2 | Tang do gan bo va gia tri su dung hang ngay | Mood, reminder, widget data, insight don gian |
 | Phase 3 | Them gamification va thong minh | Challenge, badge, category suggestion, analytics nang cao |
+| Phase 4 | Mo rong sang chi tieu nhom va tinh tien song phang | Shared plan, hoa don chung, debt tracking, tong ket thanh toan |
+| Phase 5 | Them lop ket noi xa hoi nhe | Ket ban, chia se moment chon loc, reaction nhe, privacy control |
 
 ## 3. Phase 0 - Foundation
 
@@ -194,7 +196,126 @@ Tao dong luc thay doi hanh vi va tang gia tri khac biet cho san pham.
 - Badge mo khoa dung dieu kien.
 - Goi y danh muc co the dung trong nhieu truong hop co ban.
 
-## 7. Thu tu uu tien khi bat tay vao code
+## 7. Phase 4 - Shared Expense and Fair Split
+
+### 7.1. Muc tieu
+
+Mo rong san pham tu quan ly chi tieu ca nhan sang quan ly chi tieu nhom cho cac tinh huong di an, di choi, di du lich hoac cung lap ke hoach chung. Muc tieu la giu duoc diem manh photo-first nhung bo sung kha nang "ai tra truoc, ai no ai" ro rang va de doi soat.
+
+### 7.2. Feature uu tien
+
+- Tao ke hoach nhom hoac chuyen di chung.
+- Moi thanh vien vao nhom hoac them thanh vien thu cong.
+- Chup hoa don dinh kem lam bang chung cho mot khoan chi nhom.
+- Chon nguoi tra truoc.
+- Chon nhung ai tham gia chia tien.
+- Ho tro chia deu truoc, ve sau co the mo rong custom split.
+- Tu dong tinh cong no giua cac thanh vien.
+- Gui tong ket cuoi ke hoach: ai no ai, bao nhieu, da thanh toan hay chua.
+
+### 7.3. Cong viec can lam
+
+- Them data model `Plan`, `PlanMember`, `SharedExpense`, `Settlement`.
+- Tach ro expense ca nhan va expense nhom trong business rule.
+- Them man hinh tao ke hoach va chi tiet ke hoach.
+- Them flow them hoa don chung tu anh, ghi nguoi tra truoc va danh sach nguoi tham gia.
+- Viet logic tinh no toi uu de khong hien thi qua nhieu giao dich can tra.
+- Them trang thai thanh toan: chua tra, da tra, da xac nhan.
+- Thiet ke thong bao hoac inbox su kien khi co khoan chi nhom moi.
+
+### 7.4. Business rule can khoa
+
+- Moi shared expense phai thuoc ve mot ke hoach nhom.
+- Shared expense phai co mot nguoi `paidBy`.
+- Danh sach `splitBetween` khong duoc rong.
+- Tong tien phan bo phai bang tong hoa don.
+- Thanh vien chi duoc xem va xac nhan cac ke hoach ma minh tham gia.
+- Tong ket cuoi chuyen chi duoc khoa so khi tat ca settlement da duoc xac nhan hoac duoc danh dau dong ke hoach.
+
+### 7.5. Dieu kien de lam phase nay
+
+- MVP ca nhan da on dinh va duoc test tot.
+- Da co quyet dinh ro rang ve backend dong bo da thiet bi, vi tinh nang nhom khong con phu hop voi local-only architecture.
+- Da chot cach moi thanh vien vao nhom: link, ma moi, hay them tay.
+
+### 7.6. Tieu chi hoan thanh
+
+- Tao duoc mot ke hoach nhom moi.
+- Them duoc shared expense kem anh hoa don.
+- He thong tinh dung ai no ai sau moi khoan chi.
+- Man hinh tong ket cuoi ke hoach de doc, de doi soat.
+- Demo duoc luong tron ven: tao ke hoach -> them hoa don -> cap nhat cong no -> tong ket.
+
+### 7.7. Ghi chu pham vi
+
+Tinh nang nay khong nen dua vao MVP hien tai. Day la huong mo rong lon, co nguy co bien du an tu quan ly chi tieu ca nhan thanh app chia tien nhom. Vi vay no nen duoc xep sau challenge va insight, va chi lam khi core photo-expense da vung.
+
+## 8. Phase 5 - Social Lite and Friends
+
+### 8.1. Muc tieu
+
+Bo sung mot lop ket noi xa hoi nhe lay cam hung tu Locket, nhung van giu san pham la app ghi chi tieu photo-first. Social o day chi co vai tro tang gan bo, tao dong luc quay lai app va chia se co chon loc, khong thay the timeline chi tieu ca nhan.
+
+### 8.2. Feature uu tien
+
+- Ket ban bang link moi, username hoac QR.
+- Danh sach ban be va trang thai ket noi.
+- Cho phep chia se `moment` da chon voi ban be.
+- `Moment` co 2 loai: expense moment hoac normal photo moment.
+- Reaction nhe nhu tim, icon hoac cau binh luan ngan.
+- Chon quyen rieng tu cho tung moment: private, friends-only.
+- Tong hop nhe cac moment tu ban be trong mot tab rieng, khong tron vao Home ghi chi tieu.
+
+### 8.3. Cong viec can lam
+
+- Them data model `Friendship`, `ShareMoment`, `MomentReaction`.
+- Tach ro expense timeline ca nhan va social feed.
+- Thiet ke tab `Friends` hoac `Moments` rieng.
+- Them flow gui loi moi ket ban, chap nhan, huy ket ban.
+- Them UI chia se mot expense moment hoac mot normal photo moment.
+- Them bo loc privacy va quyen xem noi dung.
+- Them thong bao nhe khi co moment moi tu ban be.
+
+### 8.4. Data model de xuat
+
+- `Friendship`: `id`, `requesterId`, `addresseeId`, `pairKey`, `status`, `createdAt`, `respondedAt`, `updatedAt`.
+- `ShareMoment`: `id`, `ownerUserId`, `momentType`, `expenseId` nullable, `imageUri`, `thumbnailUri`, `caption`, `privacyScope`, `shareAmountPreview`, `amountSnapshot` nullable, `categorySnapshot` nullable, `noteSnapshot` nullable, `createdAt`, `sharedAt`, `updatedAt`, `deletedAt` nullable.
+- `MomentReaction`: `id`, `momentId`, `userId`, `reactionType`, `createdAt`, `updatedAt`.
+
+Luu y:
+
+- `pairKey` la cap user da sap xep tang dan de chong tao 2 ban ghi friendship cho cung mot cap ban.
+- `ShareMoment` nen luu snapshot toi thieu thay vi phu thuoc 100% vao `Expense`, de tranh feed bi thay doi ngoai y muon khi user sua expense goc.
+- `MomentReaction` o v1 chi nen la reaction icon, chua can comment text.
+
+### 8.5. Business rule can khoa
+
+- Nguoi dung chi duoc xem moment cua chinh minh hoac cua ban be duoc phep xem.
+- Expense moment chi chia se ban preview duoc chon, khong bat buoc lo toan bo thong tin tai chinh chi tiet.
+- Home mac dinh van la noi ghi nhanh chi tieu, khong duoc doi thanh social feed.
+- Normal photo moment la tuy chon, khong duoc chiem uu the hon expense moment trong dinh vi san pham.
+- Moi moment chi thuoc mot muc privacy tai mot thoi diem.
+- Reaction va comment phai nhe, ngan, tranh bien app thanh mang xa hoi hoan chinh.
+
+### 8.6. Dieu kien de lam phase nay
+
+- Core expense flow da on dinh va giu duoc tan su dung hang ngay.
+- Da co backend dong bo user-to-user va xu ly quyen rieng tu.
+- Da chot ro social layer chi la phan mo rong, khong thay doi dinh vi san pham.
+
+### 8.7. Tieu chi hoan thanh
+
+- User gui va chap nhan loi moi ket ban duoc.
+- User chia se duoc mot expense moment hoac normal photo moment.
+- Ban be nhan duoc moment va reaction duoc.
+- Privacy control hoat dong dung.
+- Social tab ton tai rieng, khong lam vo luong ghi chi tieu nhanh.
+
+### 8.8. Ghi chu pham vi
+
+Phase nay phai di theo huong `social-lite`, khong lam theo huong mang xa hoi day du. Neu app bi lech thanh noi dang anh thong thuong thi se mat dinh vi "expense diary". Vi vay feed, comment dai, message, story va cac co che virality khong nen dua vao som.
+
+## 9. Thu tu uu tien khi bat tay vao code
 
 Neu bat dau lap trinh ngay, nen di theo thu tu sau:
 
@@ -209,7 +330,7 @@ Neu bat dau lap trinh ngay, nen di theo thu tu sau:
 9. Kiem thu luong chinh.
 10. Sau khi MVP on dinh moi sang mood, reminder va widget.
 
-## 8. Definition of Done cho moi feature
+## 10. Definition of Done cho moi feature
 
 Moi feature chi duoc xem la xong khi dap ung du cac dieu kien sau:
 
@@ -220,22 +341,26 @@ Moi feature chi duoc xem la xong khi dap ung du cac dieu kien sau:
 - Co test tay hoac test ky thuat cho luong chinh.
 - Khong lam vo luong core khac.
 
-## 9. Rui ro chinh can tranh
+## 11. Rui ro chinh can tranh
 
 - Mo rong feature qua som khi MVP chua xong.
 - Qua dau tu vao animation trong khi luong tao expense con cham.
 - Khong chot ro anh co bat buoc hay khong.
 - Data model khong tinh truoc cho mood/challenge nen ve sau phai sua lon.
 - Widget va AI duoc dua vao som lam tang do phuc tap khong can thiet.
+- Day tinh nang nhom vao qua som lam vo dinh vi "chi tieu ca nhan photo-first".
+- Khong tach ro local data va shared synced data lam flow group expense khong on dinh.
+- Day ket ban va feed vao som lam Home mat vai tro ghi nhanh.
+- Cho phep normal photo len qua manh lam user nham app nay la Locket clone thay vi expense diary.
 
-## 10. Cach su dung tai lieu nay trong qua trinh lam project
+## 12. Cach su dung tai lieu nay trong qua trinh lam project
 
 - Moi khi bat dau mot phase, doi chieu lai pham vi trong file nay.
 - Neu muon them feature moi, phai xac dinh no thuoc phase nao.
 - Neu feature khong phuc vu gia tri cot loi, khong dua vao MVP.
 - Sau moi phase, cap nhat lai trang thai hoan thanh trong roadmap.
 
-## 11. Moc tiep theo de thuc hien ngay
+## 13. Moc tiep theo de thuc hien ngay
 
 Neu tiep tuc phat trien tu repo hien tai, cac buoc tiep theo nen la:
 

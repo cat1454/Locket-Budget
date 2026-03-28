@@ -9,11 +9,14 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { categories } from '../data/categories';
-import type { Expense, ExpenseDraft, StoredUser, User } from '../types/domain';
+import type { AppPreferences, Expense, ExpenseDraft, StoredUser, User } from '../types/domain';
 import { sortExpensesByDate } from '../utils/analytics';
 import { createId } from '../utils/id';
 
 const STORAGE_KEY = 'locket_budget_store_v1';
+const defaultPreferences: AppPreferences = {
+  androidFrontCameraMirrorFixEnabled: false,
+};
 
 const avatarGradients: Array<[string, string]> = [
   ['#F4BA78', '#EF7D57'],
@@ -27,6 +30,7 @@ interface PersistedStore {
   users: StoredUser[];
   expenses: Expense[];
   sessionUserId: string | null;
+  preferences: AppPreferences;
 }
 
 interface ActionResult {
@@ -43,6 +47,7 @@ interface SessionContextValue {
   isAuthenticated: boolean;
   user: User | null;
   expenses: Expense[];
+  preferences: AppPreferences;
   signIn: (email: string, password: string) => Promise<ActionResult>;
   register: (displayName: string, email: string, password: string) => Promise<ActionResult>;
   signOut: () => Promise<void>;
@@ -50,12 +55,14 @@ interface SessionContextValue {
   updateExpense: (expenseId: string, draft: ExpenseDraft) => Promise<ExpenseActionResult>;
   deleteExpense: (expenseId: string) => Promise<ActionResult>;
   getExpenseById: (expenseId: string) => Expense | null;
+  setAndroidFrontCameraMirrorFixEnabled: (enabled: boolean) => Promise<void>;
 }
 
 const initialStore: PersistedStore = {
   users: [],
   expenses: [],
   sessionUserId: null,
+  preferences: defaultPreferences,
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -77,6 +84,20 @@ async function hashPassword(password: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, password);
 }
 
+function sanitizePreferences(rawValue: unknown): AppPreferences {
+  if (!rawValue || typeof rawValue !== 'object') {
+    return defaultPreferences;
+  }
+
+  const rawPreferences = rawValue as Partial<AppPreferences>;
+
+  return {
+    androidFrontCameraMirrorFixEnabled: Boolean(
+      rawPreferences.androidFrontCameraMirrorFixEnabled,
+    ),
+  };
+}
+
 function sanitizeStore(rawValue: string | null): PersistedStore {
   if (!rawValue) {
     return initialStore;
@@ -92,6 +113,7 @@ function sanitizeStore(rawValue: string | null): PersistedStore {
         typeof parsed.sessionUserId === 'string' || parsed.sessionUserId === null
           ? parsed.sessionUserId
           : null,
+      preferences: sanitizePreferences(parsed.preferences),
     };
   } catch {
     return initialStore;
@@ -227,6 +249,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await persistStore(nextStore);
   }
 
+  async function setAndroidFrontCameraMirrorFixEnabled(enabled: boolean) {
+    const nextStore: PersistedStore = {
+      ...store,
+      preferences: {
+        ...store.preferences,
+        androidFrontCameraMirrorFixEnabled: enabled,
+      },
+    };
+
+    await persistStore(nextStore);
+  }
+
   async function addExpense(draft: ExpenseDraft): Promise<ExpenseActionResult> {
     if (!user) {
       return { ok: false, error: 'Ban can dang nhap de luu khoan chi.' };
@@ -337,6 +371,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     isAuthenticated: Boolean(user),
     user,
     expenses,
+    preferences: store.preferences,
     signIn,
     register,
     signOut,
@@ -344,6 +379,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     updateExpense,
     deleteExpense,
     getExpenseById,
+    setAndroidFrontCameraMirrorFixEnabled,
   };
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
