@@ -1,23 +1,22 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { categoryById } from '../data/categories';
-import { elevation, radius, spacing, typography } from '../theme';
+import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
 import type { Expense } from '../types/domain';
-import { formatCurrencyVnd, formatDateTime } from '../utils/format';
+import { formatCurrencyVnd } from '../utils/format';
 
-interface ExpenseCardProps {
+interface ExpenseQuickTileProps {
   expense: Expense;
   onPress?: () => void;
 }
 
-export function ExpenseCard({ expense, onPress }: ExpenseCardProps) {
+export function ExpenseQuickTile({ expense, onPress }: ExpenseQuickTileProps) {
   const category = categoryById[expense.categoryId];
-  const noteText = expense.note || 'Khong co ghi chu';
 
   return (
     <Pressable onPress={onPress} style={styles.pressable}>
-      <View style={styles.card}>
+      <View style={styles.tile}>
         <View style={styles.mediaWrap}>
           {expense.imageUri ? (
             <Image source={{ uri: expense.imageUri }} style={styles.coverImage} />
@@ -28,22 +27,14 @@ export function ExpenseCard({ expense, onPress }: ExpenseCardProps) {
           )}
 
           <LinearGradient
-            colors={['transparent', 'rgba(18, 12, 8, 0.18)', 'rgba(18, 12, 8, 0.74)']}
-            locations={[0, 0.45, 1]}
+            colors={['transparent', 'rgba(8, 8, 8, 0.18)', 'rgba(8, 8, 8, 0.82)']}
+            locations={[0, 0.48, 1]}
             style={styles.amountOverlay}
           >
-            <Text style={styles.amountText}>{formatCurrencyVnd(expense.amount)}</Text>
+            <Text numberOfLines={1} style={styles.amountText}>
+              {formatCurrencyVnd(expense.amount)}
+            </Text>
           </LinearGradient>
-        </View>
-
-        <View style={styles.content}>
-          <Text style={styles.categoryText}>{category.label}</Text>
-          <Text numberOfLines={2} style={[styles.noteText, !expense.note && styles.noteTextMuted]}>
-            {noteText}
-          </Text>
-          <Text numberOfLines={1} style={styles.metaText}>
-            {`${formatDateTime(expense.occurredAt)} • ${category.shortLabel}`}
-          </Text>
         </View>
       </View>
     </Pressable>
@@ -52,15 +43,15 @@ export function ExpenseCard({ expense, onPress }: ExpenseCardProps) {
 
 const styles = StyleSheet.create({
   pressable: {
+    width: '48.4%',
     marginBottom: spacing.md,
   },
-  card: {
+  tile: {
     borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: colors.card,
+    backgroundColor: 'rgba(14, 14, 14, 0.94)',
     borderWidth: 1,
-    borderColor: colors.border,
-    ...elevation,
+    borderColor: 'rgba(246, 177, 23, 0.18)',
   },
   mediaWrap: {
     position: 'relative',
@@ -87,38 +78,12 @@ const styles = StyleSheet.create({
   amountOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  content: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-  },
-  categoryText: {
-    color: colors.textSecondary,
-    fontSize: typography.eyebrow,
-    marginBottom: spacing.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  noteText: {
-    color: colors.textPrimary,
-    fontSize: typography.bodyLarge,
-    fontWeight: '600',
-    lineHeight: 24,
-    marginBottom: spacing.sm,
-  },
-  noteTextMuted: {
-    color: colors.textSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   amountText: {
     color: colors.white,
-    fontSize: typography.title,
+    fontSize: typography.bodyLarge,
     fontWeight: '800',
-  },
-  metaText: {
-    color: colors.textSecondary,
-    fontSize: typography.body,
   },
 });

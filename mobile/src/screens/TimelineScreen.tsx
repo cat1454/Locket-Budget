@@ -17,9 +17,7 @@ export function TimelineScreen({ navigation }: Props) {
   return (
     <ScreenShell>
       <Text style={styles.heading}>Expense timeline</Text>
-      <Text style={styles.subheading}>
-        Xem lai cac khoan chi theo dang journal hinh anh, moi item la mot lan chi tieu that.
-      </Text>
+      <Text style={styles.subheading}>Anh la trung tam, gia tien hien ngay tren tung khoan chi.</Text>
 
       {expenses.length === 0 ? (
         <View style={styles.emptyCard}>

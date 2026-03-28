@@ -5,15 +5,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, type AvailableLenses, type CameraType, type FlashMode } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Image, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { categoryById } from '../data/categories';
+import { CaptureHistorySheet } from '../components/CaptureHistorySheet';
 import { QuickExpenseSheet } from '../components/QuickExpenseSheet';
 import type { AppTabParamList, RootStackParamList } from '../navigation/types';
 import { useSession } from '../state/SessionContext';
 import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
-import { getPeriodTotals } from '../utils/analytics';
+import { getPeriodTotals, getRecentExpenses } from '../utils/analytics';
 import { formatCurrencyVnd } from '../utils/format';
 import { cropImageToSquare } from '../utils/image';
 
@@ -41,6 +44,7 @@ const WIDE_LENS = 'builtInWideAngleCamera';
 
 export function HomeScreen({ navigation }: Props) {
   const cameraRef = useRef<CameraView | null>(null);
+  const homeLift = useRef(new Animated.Value(0)).current;
   const isFocused = useIsFocused();
   const { width: viewportWidth } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
@@ -50,9 +54,13 @@ export function HomeScreen({ navigation }: Props) {
   const [availableLenses, setAvailableLenses] = useState<string[]>([]);
   const [selectedLens, setSelectedLens] = useState<string | undefined>(undefined);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [draftImageUri, setDraftImageUri] = useState<string | null>(null);
   const { expenses, user } = useSession();
   const totals = getPeriodTotals(expenses);
+  const recentExpenses = getRecentExpenses(expenses, 6);
+  const latestExpense = recentExpenses[0] ?? null;
+  const latestCategory = latestExpense ? categoryById[latestExpense.categoryId] : null;
   const rootNavigation = navigation.getParent<NativeStackNavigationProp<RootStackParamList>>();
   const availableWidth = Math.max(0, viewportWidth - spacing.md * 2);
   const guideSize = Math.min(availableWidth, 340);
@@ -129,6 +137,65 @@ export function HomeScreen({ navigation }: Props) {
     setZoomValue(Number(nextZoom.toFixed(4)));
   }
 
+  function openHistorySheet() {
+    setIsHistoryOpen(true);
+  }
+
+  function closeHistorySheet() {
+    setIsHistoryOpen(false);
+  }
+
+  function resetHomeLift(duration = 180) {
+    Animated.spring(homeLift, {
+      toValue: 0,
+      damping: 18,
+      stiffness: 180,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  }
+
+  const homePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+          if (isHistoryOpen) {
+            return false;
+          }
+
+          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 6;
+          return isVertical && gestureState.dy < -20;
+        },
+        onPanResponderGrant: () => {
+          homeLift.stopAnimation();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy >= 0) {
+            homeLift.setValue(0);
+            return;
+          }
+
+          const liftedY = Math.max(-64, gestureState.dy * 0.22);
+          homeLift.setValue(liftedY);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 6;
+
+          if (isVertical && gestureState.dy < -44) {
+            resetHomeLift();
+            openHistorySheet();
+            return;
+          }
+
+          resetHomeLift();
+        },
+        onPanResponderTerminate: () => {
+          resetHomeLift();
+        },
+      }),
+    [homeLift, isHistoryOpen],
+  );
+
   const ultraWideSupported = facing === 'back' && availableLenses.includes(ULTRA_WIDE_LENS);
   const ultraWideActive = ultraWideSupported && selectedLens === ULTRA_WIDE_LENS;
   const zoomBase = ultraWideActive ? 0.5 : 1;
@@ -175,7 +242,15 @@ export function HomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.root}>
       <StatusBar style="light" />
-
+      <Animated.View
+        {...homePanResponder.panHandlers}
+        style={[
+          styles.gestureSurface,
+          {
+            transform: [{ translateY: homeLift }],
+          },
+        ]}
+      >
       <View style={styles.topRow}>
         <Pressable onPress={toggleFlash} style={styles.iconButton}>
           <Ionicons
@@ -315,7 +390,35 @@ export function HomeScreen({ navigation }: Props) {
             <Ionicons color={ui.gold} name="camera-reverse-outline" size={26} />
           </Pressable>
         </View>
+
+        <Pressable
+          onPress={openHistorySheet}
+          style={styles.historyLauncher}
+        >
+          {latestExpense ? (
+            latestExpense.imageUri ? (
+              <Image source={{ uri: latestExpense.imageUri }} style={styles.historyThumb} />
+            ) : (
+              <LinearGradient
+                colors={latestCategory?.coverColors ?? ['#6A553A', '#3F321F']}
+                style={styles.historyThumbFallback}
+              >
+                <Text style={styles.historyThumbFallbackText}>
+                  {latestCategory?.shortLabel ?? 'H'}
+                </Text>
+              </LinearGradient>
+            )
+          ) : (
+            <View style={styles.historyThumbPlaceholder}>
+              <Ionicons color={ui.gold} name="images-outline" size={18} />
+            </View>
+          )}
+
+          <Text style={styles.historyLauncherText}>Lich su</Text>
+          <Ionicons color="rgba(255, 255, 255, 0.72)" name="chevron-up" size={18} />
+        </Pressable>
       </View>
+      </Animated.View>
 
       {draftImageUri ? (
         <QuickExpenseSheet
@@ -332,6 +435,18 @@ export function HomeScreen({ navigation }: Props) {
           }}
         />
       ) : null}
+
+      <CaptureHistorySheet
+        expenses={expenses}
+        onClose={closeHistorySheet}
+        onOpenExpense={(expenseId) => {
+          closeHistorySheet();
+          setTimeout(() => {
+            rootNavigation?.navigate('ExpenseDetail', { expenseId });
+          }, 180);
+        }}
+        visible={isHistoryOpen}
+      />
     </SafeAreaView>
   );
 }
@@ -341,6 +456,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#050505',
     paddingHorizontal: spacing.md,
+  },
+  gestureSurface: {
+    flex: 1,
   },
   loadingScreen: {
     flex: 1,
@@ -655,5 +773,48 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.72,
+  },
+  historyLauncher: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  historyThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: '#161616',
+  },
+  historyThumbFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyThumbFallbackText: {
+    color: colors.white,
+    fontSize: typography.body,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  historyThumbPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(20, 20, 20, 0.94)',
+    borderWidth: 1,
+    borderColor: ui.goldBorder,
+  },
+  historyLauncherText: {
+    color: colors.white,
+    fontSize: 26,
+    fontWeight: '800',
   },
 });
