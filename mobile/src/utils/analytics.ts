@@ -1,5 +1,19 @@
 import { categoryById, categories } from '../data/categories';
-import type { CategorySummary, Expense, PeriodTotals } from '../types/domain';
+import { moodById, moods } from '../data/moods';
+import type { CategorySummary, Expense, MoodSummary, PeriodTotals } from '../types/domain';
+import { formatCurrencyVnd, formatShortTime } from './format';
+
+export interface MoodInsight {
+  title: string;
+  body: string;
+  color: string;
+}
+
+export interface TodayRecap {
+  title: string;
+  body: string;
+  badge: string;
+}
 
 function isSameDay(left: Date, right: Date) {
   return (
@@ -73,6 +87,23 @@ export function getCategorySummaries(expenses: Expense[]): CategorySummary[] {
     .sort((left, right) => right.amount - left.amount);
 }
 
+export function getMoodSummaries(expenses: Expense[]): MoodSummary[] {
+  return moods
+    .map((mood) => {
+      const relatedExpenses = expenses.filter((expense) => expense.moodId === mood.id);
+
+      return {
+        moodId: mood.id,
+        label: mood.label,
+        amount: relatedExpenses.reduce((total, expense) => total + expense.amount, 0),
+        count: relatedExpenses.length,
+        color: mood.color,
+      };
+    })
+    .filter((summary) => summary.count > 0)
+    .sort((left, right) => right.amount - left.amount);
+}
+
 export function getPeakWindowLabel(expenses: Expense[]) {
   if (expenses.length === 0) {
     return 'Chua du du lieu de phan tich.';
@@ -109,10 +140,68 @@ export function getHeroSummary(expenses: Expense[]) {
   return `Danh muc chi nhieu nhat hien tai la ${topCategory.label.toLowerCase()}.`;
 }
 
+export function getTopMoodInsight(expenses: Expense[]): MoodInsight {
+  const moodSummaries = getMoodSummaries(expenses);
+
+  if (moodSummaries.length === 0) {
+    return {
+      title: 'Mood insights start here',
+      body: 'Add a mood when you save an expense to see which feeling drives the most spending.',
+      color: moodById.neutral.color,
+    };
+  }
+
+  const topMood = moodSummaries[0];
+  const relatedExpenses = expenses.filter((expense) => expense.moodId === topMood.moodId);
+  const relatedCategories = getCategorySummaries(relatedExpenses);
+  const averageSpend = Math.round(topMood.amount / topMood.count);
+  const categoryLine = relatedCategories[0]
+    ? ` ${relatedCategories[0].label} is the biggest category in this mood.`
+    : '';
+
+  return {
+    title: `${topMood.label} spending stands out`,
+    body: `${topMood.count} entries totaled ${formatCurrencyVnd(topMood.amount)}. Average spend is ${formatCurrencyVnd(averageSpend)}.${categoryLine}`,
+    color: topMood.color,
+  };
+}
+
 export function getRecentExpenses(expenses: Expense[], limit = 3) {
   return sortExpensesByDate(expenses).slice(0, limit);
 }
 
 export function getExpenseFallbackColors(expense: Expense) {
   return categoryById[expense.categoryId].coverColors;
+}
+
+export function getTodayRecap(expenses: Expense[]): TodayRecap {
+  const now = new Date();
+  const todayExpenses = sortExpensesByDate(
+    expenses.filter((expense) => isSameDay(new Date(expense.occurredAt), now)),
+  );
+
+  if (todayExpenses.length === 0) {
+    return {
+      title: 'No spend saved yet',
+      body: 'Capture the first spending moment today so your recap starts building.',
+      badge: 'Ready for the first log',
+    };
+  }
+
+  const topCategory = getCategorySummaries(todayExpenses)[0];
+  const lastExpense = todayExpenses[0];
+
+  if (!topCategory || !lastExpense) {
+    return {
+      title: `${todayExpenses.length} moments saved`,
+      body: `You have already logged ${todayExpenses.length} spending moments today.`,
+      badge: `${todayExpenses.length} logs today`,
+    };
+  }
+
+  return {
+    title: `${topCategory.label} leads today`,
+    body: `${formatCurrencyVnd(topCategory.amount)} across ${topCategory.count} entries. Last capture ${formatShortTime(lastExpense.occurredAt)}.`,
+    badge: `${todayExpenses.length} ${todayExpenses.length === 1 ? 'log' : 'logs'} today`,
+  };
 }

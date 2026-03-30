@@ -6,7 +6,13 @@ import type { AppTabParamList } from '../navigation/types';
 import { useSession } from '../state/SessionContext';
 import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
-import { getCategorySummaries, getPeakWindowLabel, getPeriodTotals } from '../utils/analytics';
+import {
+  getCategorySummaries,
+  getMoodSummaries,
+  getPeakWindowLabel,
+  getPeriodTotals,
+  getTopMoodInsight,
+} from '../utils/analytics';
 import { formatCurrencyVnd } from '../utils/format';
 
 type Props = BottomTabScreenProps<AppTabParamList, 'Stats'>;
@@ -15,7 +21,9 @@ export function StatsScreen(_: Props) {
   const { expenses } = useSession();
   const totals = getPeriodTotals(expenses);
   const categorySummaries = getCategorySummaries(expenses);
+  const moodSummaries = getMoodSummaries(expenses);
   const peakWindowLabel = getPeakWindowLabel(expenses);
+  const moodInsight = getTopMoodInsight(expenses);
 
   return (
     <ScreenShell>
@@ -34,6 +42,34 @@ export function StatsScreen(_: Props) {
         <Text style={styles.insightTitle}>Khung gio chi tieu noi bat</Text>
         <Text style={styles.insightBody}>{peakWindowLabel}</Text>
       </View>
+
+      <View style={styles.insightCard}>
+        <Text style={styles.insightEyebrow}>Mood insight</Text>
+        <Text style={[styles.insightTitle, { color: moodInsight.color }]}>{moodInsight.title}</Text>
+        <Text style={styles.insightBody}>{moodInsight.body}</Text>
+      </View>
+
+      <Text style={styles.sectionTitle}>Mood overview</Text>
+      {moodSummaries.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>
+            Chua co du lieu mood. Hay chon mood khi luu khoan chi de mo them insight.
+          </Text>
+        </View>
+      ) : (
+        moodSummaries.map((summary) => (
+          <View key={summary.moodId} style={styles.categoryRow}>
+            <View style={styles.categoryTextWrap}>
+              <View style={[styles.colorDot, { backgroundColor: summary.color }]} />
+              <View>
+                <Text style={styles.categoryLabel}>{summary.label}</Text>
+                <Text style={styles.categoryMeta}>{summary.count} khoan chi</Text>
+              </View>
+            </View>
+            <Text style={styles.categoryAmount}>{formatCurrencyVnd(summary.amount)}</Text>
+          </View>
+        ))
+      )}
 
       <Text style={styles.sectionTitle}>Top categories</Text>
       {categorySummaries.length === 0 ? (

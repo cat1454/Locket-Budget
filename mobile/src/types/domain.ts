@@ -6,6 +6,8 @@ export type ExpenseCategoryId =
   | 'education'
   | 'other';
 
+export type ExpenseMoodId = 'happy' | 'calm' | 'neutral' | 'stressed' | 'sad';
+
 export interface User {
   id: string;
   displayName: string;
@@ -26,10 +28,18 @@ export interface Category {
   coverColors: [string, string];
 }
 
+export interface MoodOption {
+  id: ExpenseMoodId;
+  label: string;
+  shortLabel: string;
+  color: string;
+}
+
 export interface Expense {
   id: string;
   userId: string;
   categoryId: ExpenseCategoryId;
+  moodId: ExpenseMoodId | null;
   amount: number;
   note: string;
   imageUri: string;
@@ -40,6 +50,7 @@ export interface Expense {
 
 export interface ExpenseDraft {
   categoryId: ExpenseCategoryId;
+  moodId: ExpenseMoodId | null;
   amount: number;
   note: string;
   imageUri: string;
@@ -48,10 +59,22 @@ export interface ExpenseDraft {
 
 export interface AppPreferences {
   androidFrontCameraMirrorFixEnabled: boolean;
+  dailyReminderEnabled: boolean;
+  dailyReminderHour: number;
+  dailyReminderMinute: number;
+  dailyReminderNotificationId: string | null;
 }
 
 export interface CategorySummary {
   categoryId: ExpenseCategoryId;
+  label: string;
+  amount: number;
+  count: number;
+  color: string;
+}
+
+export interface MoodSummary {
+  moodId: ExpenseMoodId;
   label: string;
   amount: number;
   count: number;

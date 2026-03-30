@@ -2,10 +2,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { categories } from '../data/categories';
+import { MoodPicker } from '../components/MoodPicker';
 import { useSession } from '../state/SessionContext';
 import { elevation, radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
-import type { Expense, ExpenseCategoryId, ExpenseDraft } from '../types/domain';
+import type { Expense, ExpenseCategoryId, ExpenseDraft, ExpenseMoodId } from '../types/domain';
 import { formatCurrencyVnd, formatDateTime } from '../utils/format';
 import { cropImageToSquare } from '../utils/image';
 
@@ -25,6 +26,7 @@ interface ExpenseComposerProps {
 function createEmptyState(draftSeed?: Partial<ExpenseDraft>) {
   return {
     selectedCategory: draftSeed?.categoryId ?? ('food' as ExpenseCategoryId),
+    selectedMood: draftSeed?.moodId ?? ('neutral' as ExpenseMoodId),
     amount:
       typeof draftSeed?.amount === 'number' && Number.isFinite(draftSeed.amount)
         ? String(draftSeed.amount)
@@ -49,6 +51,9 @@ export function ExpenseComposer({
   const [selectedCategory, setSelectedCategory] = useState<ExpenseCategoryId>(
     editingExpense?.categoryId ?? initialState.selectedCategory,
   );
+  const [selectedMood, setSelectedMood] = useState<ExpenseMoodId | null>(
+    editingExpense ? editingExpense.moodId : initialState.selectedMood,
+  );
   const [amount, setAmount] = useState(editingExpense ? String(editingExpense.amount) : initialState.amount);
   const [note, setNote] = useState(editingExpense?.note ?? initialState.note);
   const [imageUri, setImageUri] = useState(editingExpense?.imageUri ?? initialState.imageUri);
@@ -59,6 +64,7 @@ export function ExpenseComposer({
   useEffect(() => {
     if (editingExpense) {
       setSelectedCategory(editingExpense.categoryId);
+      setSelectedMood(editingExpense.moodId);
       setAmount(String(editingExpense.amount));
       setNote(editingExpense.note);
       setImageUri(editingExpense.imageUri);
@@ -69,6 +75,7 @@ export function ExpenseComposer({
 
     const emptyState = createEmptyState(draftSeed);
     setSelectedCategory(emptyState.selectedCategory);
+    setSelectedMood(emptyState.selectedMood);
     setAmount(emptyState.amount);
     setNote(emptyState.note);
     setImageUri(emptyState.imageUri);
@@ -136,6 +143,7 @@ export function ExpenseComposer({
   function resetComposer() {
     const emptyState = createEmptyState(draftSeed);
     setSelectedCategory(emptyState.selectedCategory);
+    setSelectedMood(emptyState.selectedMood);
     setAmount(emptyState.amount);
     setNote(emptyState.note);
     setImageUri(emptyState.imageUri);
@@ -151,6 +159,7 @@ export function ExpenseComposer({
 
     const draft = {
       categoryId: selectedCategory,
+      moodId: selectedMood,
       amount: normalizedAmount,
       note: note.trim(),
       imageUri,
@@ -273,6 +282,9 @@ export function ExpenseComposer({
           );
         })}
       </View>
+
+      <Text style={styles.label}>Mood</Text>
+      <MoodPicker onChange={setSelectedMood} value={selectedMood} />
 
       <Text style={styles.label}>Ngay gio</Text>
       <View style={styles.dateRow}>

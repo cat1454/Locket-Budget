@@ -5,7 +5,7 @@ import {
   Modal,
   PanResponder,
   Pressable,
-  ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -25,14 +25,58 @@ interface CaptureHistorySheetProps {
 
 const ui = {
   backdrop: 'rgba(4, 4, 4, 0.56)',
-  panel: '#16110B',
-  panelBorder: 'rgba(246, 177, 23, 0.16)',
+  panel: '#111111',
+  panelBorder: 'rgba(255, 255, 255, 0.08)',
+  panelSoft: 'rgba(255, 255, 255, 0.04)',
   gold: '#F6B117',
 } as const;
 
 const OPEN_BACKDROP_OPACITY = 1;
 const CLOSE_DISTANCE = 120;
 const CLOSE_VELOCITY = 1;
+
+interface HistorySection {
+  key: string;
+  title: string;
+  data: Expense[][];
+}
+
+function getHistoryGroupKey(value: string) {
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isSameCalendarDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate()
+  );
+}
+
+function getHistoryGroupLabel(value: string) {
+  const target = new Date(value);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  if (isSameCalendarDay(target, now)) {
+    return 'Today';
+  }
+
+  if (isSameCalendarDay(target, yesterday)) {
+    return 'Yesterday';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(target);
+}
 
 export function CaptureHistorySheet({
   visible,
@@ -46,6 +90,39 @@ export function CaptureHistorySheet({
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   const maxSheetHeight = Math.min(viewportHeight * 0.82, 760);
+  const groupedExpenses = useMemo<HistorySection[]>(() => {
+    const groups: Array<{ key: string; title: string; items: Expense[] }> = [];
+
+    expenses.forEach((expense) => {
+      const key = getHistoryGroupKey(expense.occurredAt);
+      const existingGroup = groups[groups.length - 1];
+
+      if (existingGroup && existingGroup.key === key) {
+        existingGroup.items.push(expense);
+        return;
+      }
+
+      groups.push({
+        key,
+        title: getHistoryGroupLabel(expense.occurredAt),
+        items: [expense],
+      });
+    });
+
+    return groups.map((group) => {
+      const rows: Expense[][] = [];
+
+      for (let index = 0; index < group.items.length; index += 2) {
+        rows.push(group.items.slice(index, index + 2));
+      }
+
+      return {
+        key: group.key,
+        title: group.title,
+        data: rows,
+      };
+    });
+  }, [expenses]);
 
   const animateOpen = useCallback(() => {
     Animated.parallel([
@@ -178,31 +255,42 @@ export function CaptureHistorySheet({
           <View {...panResponder.panHandlers} style={styles.sheetHeader}>
             <View style={styles.handle} />
             <View style={styles.headerRow}>
-              <Text style={styles.title}>Lich su</Text>
+              <Text style={styles.title}>History</Text>
               <Ionicons color="rgba(255, 255, 255, 0.72)" name="chevron-down" size={18} />
             </View>
           </View>
 
           {expenses.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Chua co khoan chi nao</Text>
-              <Text style={styles.emptyBody}>Anh va gia tien se hien o day ngay sau khi ban luu.</Text>
+              <Text style={styles.emptyTitle}>No expenses yet</Text>
+              <Text style={styles.emptyBody}>Your photo moments and amounts will appear here right after you save.</Text>
             </View>
           ) : (
-            <ScrollView
+            <SectionList
               contentContainerStyle={styles.scrollContent}
+              keyExtractor={(item, index) => `${item[0]?.id ?? 'row'}-${index}`}
+              renderItem={({ item }) => (
+                <View style={styles.gridRow}>
+                  {item.map((expense) => (
+                    <ExpenseQuickTile
+                      expense={expense}
+                      key={expense.id}
+                      onPress={() => onOpenExpense(expense.id)}
+                    />
+                  ))}
+
+                  {item.length === 1 ? <View style={styles.tileSpacer} /> : null}
+                </View>
+              )}
+              renderSectionHeader={({ section }) => (
+                <View style={styles.sectionHeaderWrap}>
+                  <Text style={styles.sectionTitle}>{section.title}</Text>
+                </View>
+              )}
+              sections={groupedExpenses}
               showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.grid}>
-                {expenses.map((expense) => (
-                  <ExpenseQuickTile
-                    expense={expense}
-                    key={expense.id}
-                    onPress={() => onOpenExpense(expense.id)}
-                  />
-                ))}
-              </View>
-            </ScrollView>
+              stickySectionHeadersEnabled
+            />
           )}
         </Animated.View>
       </View>
@@ -258,10 +346,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
-  grid: {
+  sectionHeaderWrap: {
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+    backgroundColor: 'rgba(17, 17, 17, 0.96)',
+  },
+  sectionTitle: {
+    color: 'rgba(247, 247, 245, 0.64)',
+    fontSize: typography.eyebrow,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  gridRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  tileSpacer: {
+    width: '48.4%',
   },
   emptyCard: {
     marginHorizontal: spacing.lg,
@@ -269,7 +372,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: ui.panelBorder,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: ui.panelSoft,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.lg,
   },

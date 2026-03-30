@@ -9,13 +9,33 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { categories } from '../data/categories';
-import type { AppPreferences, Expense, ExpenseDraft, StoredUser, User } from '../types/domain';
+import { moods } from '../data/moods';
+import type {
+  AppPreferences,
+  Expense,
+  ExpenseCategoryId,
+  ExpenseDraft,
+  ExpenseMoodId,
+  StoredUser,
+  User,
+} from '../types/domain';
 import { sortExpensesByDate } from '../utils/analytics';
 import { createId } from '../utils/id';
+import {
+  cancelDailyReminderAsync,
+  DEFAULT_DAILY_REMINDER_HOUR,
+  DEFAULT_DAILY_REMINDER_MINUTE,
+  requestDailyReminderPermissionsAsync,
+  scheduleDailyReminderAsync,
+} from '../utils/reminders';
 
 const STORAGE_KEY = 'locket_budget_store_v1';
 const defaultPreferences: AppPreferences = {
   androidFrontCameraMirrorFixEnabled: false,
+  dailyReminderEnabled: false,
+  dailyReminderHour: DEFAULT_DAILY_REMINDER_HOUR,
+  dailyReminderMinute: DEFAULT_DAILY_REMINDER_MINUTE,
+  dailyReminderNotificationId: null,
 };
 
 const avatarGradients: Array<[string, string]> = [
@@ -56,6 +76,7 @@ interface SessionContextValue {
   deleteExpense: (expenseId: string) => Promise<ActionResult>;
   getExpenseById: (expenseId: string) => Expense | null;
   setAndroidFrontCameraMirrorFixEnabled: (enabled: boolean) => Promise<void>;
+  setDailyReminderEnabled: (enabled: boolean) => Promise<ActionResult>;
 }
 
 const initialStore: PersistedStore = {
@@ -90,11 +111,79 @@ function sanitizePreferences(rawValue: unknown): AppPreferences {
   }
 
   const rawPreferences = rawValue as Partial<AppPreferences>;
+  const dailyReminderHour = Number.isInteger(rawPreferences.dailyReminderHour)
+    ? clampNumber(rawPreferences.dailyReminderHour as number, 0, 23)
+    : DEFAULT_DAILY_REMINDER_HOUR;
+  const dailyReminderMinute = Number.isInteger(rawPreferences.dailyReminderMinute)
+    ? clampNumber(rawPreferences.dailyReminderMinute as number, 0, 59)
+    : DEFAULT_DAILY_REMINDER_MINUTE;
 
   return {
     androidFrontCameraMirrorFixEnabled: Boolean(
       rawPreferences.androidFrontCameraMirrorFixEnabled,
     ),
+    dailyReminderEnabled: Boolean(rawPreferences.dailyReminderEnabled),
+    dailyReminderHour,
+    dailyReminderMinute,
+    dailyReminderNotificationId:
+      typeof rawPreferences.dailyReminderNotificationId === 'string'
+      && rawPreferences.dailyReminderNotificationId.length > 0
+        ? rawPreferences.dailyReminderNotificationId
+        : null,
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeCategoryId(rawValue: unknown): ExpenseCategoryId {
+  if (typeof rawValue === 'string' && categories.some((category) => category.id === rawValue)) {
+    return rawValue as ExpenseCategoryId;
+  }
+
+  return 'other';
+}
+
+function sanitizeMoodId(rawValue: unknown): ExpenseMoodId | null {
+  if (typeof rawValue === 'string' && moods.some((mood) => mood.id === rawValue)) {
+    return rawValue as ExpenseMoodId;
+  }
+
+  return null;
+}
+
+function sanitizeExpense(rawValue: unknown): Expense | null {
+  if (!rawValue || typeof rawValue !== 'object') {
+    return null;
+  }
+
+  const rawExpense = rawValue as Partial<Expense>;
+
+  if (
+    typeof rawExpense.id !== 'string'
+    || typeof rawExpense.userId !== 'string'
+    || typeof rawExpense.imageUri !== 'string'
+    || typeof rawExpense.occurredAt !== 'string'
+    || typeof rawExpense.createdAt !== 'string'
+    || typeof rawExpense.updatedAt !== 'string'
+    || typeof rawExpense.amount !== 'number'
+    || !Number.isFinite(rawExpense.amount)
+  ) {
+    return null;
+  }
+
+  return {
+    id: rawExpense.id,
+    userId: rawExpense.userId,
+    categoryId: sanitizeCategoryId(rawExpense.categoryId),
+    moodId: sanitizeMoodId(rawExpense.moodId),
+    amount: rawExpense.amount,
+    note: typeof rawExpense.note === 'string' ? rawExpense.note : '',
+    imageUri: rawExpense.imageUri,
+    occurredAt: rawExpense.occurredAt,
+    createdAt: rawExpense.createdAt,
+    updatedAt: rawExpense.updatedAt,
   };
 }
 
@@ -108,7 +197,11 @@ function sanitizeStore(rawValue: string | null): PersistedStore {
 
     return {
       users: Array.isArray(parsed.users) ? parsed.users : [],
-      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      expenses: Array.isArray(parsed.expenses)
+        ? parsed.expenses
+            .map((expense) => sanitizeExpense(expense))
+            .filter((expense): expense is Expense => Boolean(expense))
+        : [],
       sessionUserId:
         typeof parsed.sessionUserId === 'string' || parsed.sessionUserId === null
           ? parsed.sessionUserId
@@ -131,6 +224,10 @@ function validateExpenseDraft(draft: ExpenseDraft) {
 
   if (!categories.some((category) => category.id === draft.categoryId)) {
     return 'Danh muc khong hop le.';
+  }
+
+  if (draft.moodId !== null && !moods.some((mood) => mood.id === draft.moodId)) {
+    return 'Mood khong hop le.';
   }
 
   if (!draft.occurredAt) {
@@ -261,6 +358,65 @@ export function SessionProvider({ children }: PropsWithChildren) {
     await persistStore(nextStore);
   }
 
+  async function setDailyReminderEnabled(enabled: boolean): Promise<ActionResult> {
+    if (enabled) {
+      const permissionsGranted = await requestDailyReminderPermissionsAsync();
+
+      if (!permissionsGranted) {
+        return {
+          ok: false,
+          error: 'Notification permission is required to turn on the daily reminder.',
+        };
+      }
+
+      try {
+        await cancelDailyReminderAsync(store.preferences.dailyReminderNotificationId);
+        const notificationId = await scheduleDailyReminderAsync(
+          store.preferences.dailyReminderHour,
+          store.preferences.dailyReminderMinute,
+        );
+
+        const nextStore: PersistedStore = {
+          ...store,
+          preferences: {
+            ...store.preferences,
+            dailyReminderEnabled: true,
+            dailyReminderNotificationId: notificationId,
+          },
+        };
+
+        await persistStore(nextStore);
+        return { ok: true };
+      } catch {
+        return {
+          ok: false,
+          error: 'Could not schedule the daily reminder. Try again once notifications are available.',
+        };
+      }
+    }
+
+    try {
+      await cancelDailyReminderAsync(store.preferences.dailyReminderNotificationId);
+    } catch {
+      return {
+        ok: false,
+        error: 'Could not turn off the daily reminder right now.',
+      };
+    }
+
+    const nextStore: PersistedStore = {
+      ...store,
+      preferences: {
+        ...store.preferences,
+        dailyReminderEnabled: false,
+        dailyReminderNotificationId: null,
+      },
+    };
+
+    await persistStore(nextStore);
+    return { ok: true };
+  }
+
   async function addExpense(draft: ExpenseDraft): Promise<ExpenseActionResult> {
     if (!user) {
       return { ok: false, error: 'Ban can dang nhap de luu khoan chi.' };
@@ -277,6 +433,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       id: createId('expense'),
       userId: user.id,
       categoryId: draft.categoryId,
+      moodId: draft.moodId,
       amount: draft.amount,
       note: draft.note.trim(),
       imageUri: draft.imageUri,
@@ -316,6 +473,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const nextExpense: Expense = {
       ...currentExpense,
       categoryId: draft.categoryId,
+      moodId: draft.moodId,
       amount: draft.amount,
       note: draft.note.trim(),
       imageUri: draft.imageUri,
@@ -380,6 +538,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     deleteExpense,
     getExpenseById,
     setAndroidFrontCameraMirrorFixEnabled,
+    setDailyReminderEnabled,
   };
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

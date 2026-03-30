@@ -6,8 +6,8 @@ import { CameraView, useCameraPermissions, type AvailableLenses, type CameraType
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Image, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Image, InteractionManager, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { categoryById } from '../data/categories';
 import { CaptureHistorySheet } from '../components/CaptureHistorySheet';
@@ -16,7 +16,7 @@ import type { AppTabParamList, RootStackParamList } from '../navigation/types';
 import { useSession } from '../state/SessionContext';
 import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
-import { getPeriodTotals, getRecentExpenses } from '../utils/analytics';
+import { getPeriodTotals, getRecentExpenses, getTodayRecap } from '../utils/analytics';
 import { formatCurrencyVnd } from '../utils/format';
 import { cropImageToSquare } from '../utils/image';
 
@@ -24,10 +24,15 @@ type Props = BottomTabScreenProps<AppTabParamList, 'Home'>;
 
 const ui = {
   gold: '#F6B117',
-  goldBorder: 'rgba(246, 177, 23, 0.36)',
+  goldBorder: 'rgba(246, 177, 23, 0.22)',
   goldSoft: 'rgba(246, 177, 23, 0.16)',
+  glow: 'rgba(246, 177, 23, 0.24)',
   ink: '#0E0E0E',
-  panel: 'rgba(12, 12, 12, 0.9)',
+  panel: 'rgba(255, 255, 255, 0.06)',
+  panelStrong: 'rgba(255, 255, 255, 0.1)',
+  border: 'rgba(255, 255, 255, 0.08)',
+  text: '#F7F7F5',
+  textSoft: 'rgba(247, 247, 245, 0.68)',
 } as const;
 
 const guideShadow = {
@@ -37,16 +42,52 @@ const guideShadow = {
   shadowRadius: 18,
   elevation: 16,
 } as const;
-const ZOOM_TRACK_WIDTH = 220;
-const ZOOM_THUMB_SIZE = 18;
 const ULTRA_WIDE_LENS = 'builtInUltraWideCamera';
 const WIDE_LENS = 'builtInWideAngleCamera';
+const HOME_SWIPE_MIN_DISTANCE = 24;
+const HOME_SWIPE_OPEN_DISTANCE = 48;
+
+type ZoneName = 'topRow' | 'bottomDock' | 'zoomDock' | 'bottomRow' | 'historyLauncher';
+
+interface LayoutRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getTouchDistance(
+  touches: ReadonlyArray<{
+    pageX: number;
+    pageY: number;
+  }>,
+) {
+  if (touches.length < 2) {
+    return 0;
+  }
+
+  const [firstTouch, secondTouch] = touches;
+  const deltaX = secondTouch.pageX - firstTouch.pageX;
+  const deltaY = secondTouch.pageY - firstTouch.pageY;
+  return Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+}
 
 export function HomeScreen({ navigation }: Props) {
   const cameraRef = useRef<CameraView | null>(null);
   const homeLift = useRef(new Animated.Value(0)).current;
+  const pinchDistanceRef = useRef(0);
+  const pinchStartZoomRef = useRef(0);
+  const zoomFeedbackOpacity = useRef(new Animated.Value(0)).current;
+  const zoomFeedbackTranslateY = useRef(new Animated.Value(8)).current;
+  const zoomFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingHistoryOpenRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+  const zoneLayoutsRef = useRef<Partial<Record<ZoneName, LayoutRect>>>({});
   const isFocused = useIsFocused();
-  const { width: viewportWidth } = useWindowDimensions();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState<FlashMode>('off');
@@ -58,6 +99,7 @@ export function HomeScreen({ navigation }: Props) {
   const [draftImageUri, setDraftImageUri] = useState<string | null>(null);
   const { expenses, user } = useSession();
   const totals = getPeriodTotals(expenses);
+  const todayRecap = getTodayRecap(expenses);
   const recentExpenses = getRecentExpenses(expenses, 6);
   const latestExpense = recentExpenses[0] ?? null;
   const latestCategory = latestExpense ? categoryById[latestExpense.categoryId] : null;
@@ -131,17 +173,65 @@ export function HomeScreen({ navigation }: Props) {
     setZoomValue(0);
   }
 
-  function updateZoomFromTouch(locationX: number) {
-    const clampedX = Math.max(0, Math.min(ZOOM_TRACK_WIDTH, locationX));
-    const nextZoom = clampedX / ZOOM_TRACK_WIDTH;
-    setZoomValue(Number(nextZoom.toFixed(4)));
+  function showZoomFeedback() {
+    zoomFeedbackTimerRef.current && clearTimeout(zoomFeedbackTimerRef.current);
+
+    Animated.parallel([
+      Animated.timing(zoomFeedbackOpacity, {
+        toValue: 1,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.timing(zoomFeedbackTranslateY, {
+        toValue: 0,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    zoomFeedbackTimerRef.current = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(zoomFeedbackOpacity, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(zoomFeedbackTranslateY, {
+          toValue: -8,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 700);
+  }
+
+  function setZoomWithFeedback(nextZoom: number) {
+    const normalizedZoom = Number(clamp(nextZoom, 0, 1).toFixed(4));
+    setZoomValue(normalizedZoom);
+    showZoomFeedback();
+  }
+
+  function setLensWithFeedback(nextLens: string | undefined) {
+    setSelectedLens(nextLens);
+    setZoomValue(0);
+    showZoomFeedback();
   }
 
   function openHistorySheet() {
-    setIsHistoryOpen(true);
+    if (isHistoryOpen) {
+      return;
+    }
+
+    pendingHistoryOpenRef.current?.cancel();
+    pendingHistoryOpenRef.current = InteractionManager.runAfterInteractions(() => {
+      pendingHistoryOpenRef.current = null;
+      setIsHistoryOpen(true);
+    });
   }
 
   function closeHistorySheet() {
+    pendingHistoryOpenRef.current?.cancel();
+    pendingHistoryOpenRef.current = null;
     setIsHistoryOpen(false);
   }
 
@@ -155,16 +245,107 @@ export function HomeScreen({ navigation }: Props) {
     }).start();
   }
 
+  useEffect(() => {
+    return () => {
+      zoomFeedbackTimerRef.current && clearTimeout(zoomFeedbackTimerRef.current);
+      pendingHistoryOpenRef.current?.cancel();
+      zoomFeedbackTimerRef.current = null;
+      pendingHistoryOpenRef.current = null;
+    };
+  }, []);
+
+  function handleZoneLayout(zoneName: ZoneName) {
+    return (event: LayoutChangeEvent) => {
+      const { x, y, width, height } = event.nativeEvent.layout;
+      zoneLayoutsRef.current[zoneName] = { x, y, width, height };
+    };
+  }
+
+  function isPointInsideRect(pointX: number, pointY: number, rect?: LayoutRect) {
+    if (!rect) {
+      return false;
+    }
+
+    return (
+      pointX >= rect.x
+      && pointX <= rect.x + rect.width
+      && pointY >= rect.y
+      && pointY <= rect.y + rect.height
+    );
+  }
+
+  function isPointInsideDeadZone(pointX: number, pointY: number) {
+    const topRow = zoneLayoutsRef.current.topRow;
+    const bottomDock = zoneLayoutsRef.current.bottomDock;
+    const zoomDock = zoneLayoutsRef.current.zoomDock;
+    const bottomRow = zoneLayoutsRef.current.bottomRow;
+    const historyLauncher = zoneLayoutsRef.current.historyLauncher;
+
+    if (isPointInsideRect(pointX, pointY, topRow)) {
+      return true;
+    }
+
+    if (!bottomDock) {
+      return false;
+    }
+
+    const absoluteZoomDock = zoomDock
+      ? {
+          x: bottomDock.x + zoomDock.x,
+          y: bottomDock.y + zoomDock.y,
+          width: zoomDock.width,
+          height: zoomDock.height,
+        }
+      : undefined;
+    const absoluteBottomRow = bottomRow
+      ? {
+          x: bottomDock.x + bottomRow.x,
+          y: bottomDock.y + bottomRow.y,
+          width: bottomRow.width,
+          height: bottomRow.height,
+        }
+      : undefined;
+    const absoluteHistoryLauncher = historyLauncher
+      ? {
+          x: bottomDock.x + historyLauncher.x,
+          y: bottomDock.y + historyLauncher.y,
+          width: historyLauncher.width,
+          height: historyLauncher.height,
+        }
+      : undefined;
+
+    return (
+      isPointInsideRect(pointX, pointY, absoluteZoomDock)
+      || isPointInsideRect(pointX, pointY, absoluteBottomRow)
+      || isPointInsideRect(pointX, pointY, absoluteHistoryLauncher)
+    );
+  }
+
   const homePanResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-          if (isHistoryOpen) {
+        onMoveShouldSetPanResponderCapture: (event, gestureState) => {
+          if (isHistoryOpen || draftImageUri || isCapturing) {
             return false;
           }
 
-          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 6;
-          return isVertical && gestureState.dy < -20;
+          if (gestureState.numberActiveTouches > 1) {
+            return false;
+          }
+
+          if (gestureState.dy >= 0) {
+            return false;
+          }
+
+          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 8;
+
+          if (!isVertical || gestureState.dy > -HOME_SWIPE_MIN_DISTANCE) {
+            return false;
+          }
+
+          const gestureStartX = event.nativeEvent.locationX - gestureState.dx;
+          const startY = event.nativeEvent.locationY - gestureState.dy;
+          return !isPointInsideDeadZone(gestureStartX, startY);
         },
         onPanResponderGrant: () => {
           homeLift.stopAnimation();
@@ -179,9 +360,9 @@ export function HomeScreen({ navigation }: Props) {
           homeLift.setValue(liftedY);
         },
         onPanResponderRelease: (_, gestureState) => {
-          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 6;
+          const isVertical = Math.abs(gestureState.dy) > Math.abs(gestureState.dx) + 8;
 
-          if (isVertical && gestureState.dy < -44) {
+          if (isVertical && gestureState.dy < -HOME_SWIPE_OPEN_DISTANCE) {
             resetHomeLift();
             openHistorySheet();
             return;
@@ -193,20 +374,56 @@ export function HomeScreen({ navigation }: Props) {
           resetHomeLift();
         },
       }),
-    [homeLift, isHistoryOpen],
+    [draftImageUri, homeLift, isCapturing, isHistoryOpen],
+  );
+
+  const previewPinchResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (event, gestureState) => {
+          const touches = event.nativeEvent.touches;
+          return touches.length === 2 && Math.abs(gestureState.dy) + Math.abs(gestureState.dx) > 2;
+        },
+        onPanResponderGrant: (event) => {
+          const nextDistance = getTouchDistance(event.nativeEvent.touches);
+          pinchDistanceRef.current = nextDistance;
+          pinchStartZoomRef.current = zoomValue;
+        },
+        onPanResponderMove: (event) => {
+          const nextDistance = getTouchDistance(event.nativeEvent.touches);
+
+          if (nextDistance <= 0) {
+            return;
+          }
+
+          if (pinchDistanceRef.current <= 0) {
+            pinchDistanceRef.current = nextDistance;
+            pinchStartZoomRef.current = zoomValue;
+            return;
+          }
+
+          const scaleDelta = (nextDistance - pinchDistanceRef.current) / 220;
+          const nextZoom = clamp(pinchStartZoomRef.current + scaleDelta, 0, 1);
+          setZoomWithFeedback(nextZoom);
+        },
+        onPanResponderRelease: () => {
+          pinchDistanceRef.current = 0;
+          pinchStartZoomRef.current = zoomValue;
+        },
+        onPanResponderTerminate: () => {
+          pinchDistanceRef.current = 0;
+          pinchStartZoomRef.current = zoomValue;
+        },
+      }),
+    [zoomValue],
   );
 
   const ultraWideSupported = facing === 'back' && availableLenses.includes(ULTRA_WIDE_LENS);
   const ultraWideActive = ultraWideSupported && selectedLens === ULTRA_WIDE_LENS;
-  const zoomBase = ultraWideActive ? 0.5 : 1;
-  const zoomLabel = `${(zoomBase + zoomValue * (10 - zoomBase)).toFixed(1)}x`;
-  const thumbLeft = Math.max(
-    0,
-    Math.min(
-      ZOOM_TRACK_WIDTH - ZOOM_THUMB_SIZE,
-      zoomValue * ZOOM_TRACK_WIDTH - ZOOM_THUMB_SIZE / 2,
-    ),
-  );
+  const zoomLabel = ultraWideActive
+    ? `${(0.5 + zoomValue * 0.5).toFixed(1)}x`
+    : `${(1 + zoomValue * 4).toFixed(1)}x`;
 
   if (!permission) {
     return (
@@ -242,6 +459,13 @@ export function HomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.root}>
       <StatusBar style="light" />
+      <LinearGradient
+        colors={['#040404', '#090909', '#050505']}
+        locations={[0, 0.48, 1]}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View pointerEvents="none" style={styles.ambientBlobTop} />
+      <View pointerEvents="none" style={styles.ambientBlobBottom} />
       <Animated.View
         {...homePanResponder.panHandlers}
         style={[
@@ -251,7 +475,7 @@ export function HomeScreen({ navigation }: Props) {
           },
         ]}
       >
-      <View style={styles.topRow}>
+      <View onLayout={handleZoneLayout('topRow')} style={styles.topRow}>
         <Pressable onPress={toggleFlash} style={styles.iconButton}>
           <Ionicons
             color={ui.gold}
@@ -271,14 +495,29 @@ export function HomeScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.centerColumn}>
-        <View style={styles.todayCard}>
-          <Text style={styles.todayLabel}>Today</Text>
-          <Text style={styles.todayAmount}>{formatCurrencyVnd(totals.day)}</Text>
+        <View style={styles.insightRow}>
+          <View style={styles.todayCard}>
+            <Text style={styles.todayLabel}>Today</Text>
+            <Text style={styles.todayAmount}>{formatCurrencyVnd(totals.day)}</Text>
+          </View>
+
+          <View style={styles.recapCardCompact}>
+            <Text style={styles.recapCompactLabel}>Recap</Text>
+            <Text numberOfLines={2} style={styles.recapCompactTitle}>
+              {todayRecap.title}
+            </Text>
+            <View style={styles.recapBadgeCompact}>
+              <Text style={styles.recapBadgeText}>{todayRecap.badge}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.previewWrap}>
           <View style={styles.outsideMask} />
-          <View style={[styles.captureGuide, { width: guideSize, height: guideSize }]}>
+          <View
+            {...previewPinchResponder.panHandlers}
+            style={[styles.captureGuide, { width: guideSize, height: guideSize }]}
+          >
             {isFocused ? (
               <CameraView
                 active={isFocused}
@@ -304,6 +543,18 @@ export function HomeScreen({ navigation }: Props) {
             )}
 
             <View style={styles.guideOverlay}>
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.zoomFeedbackPill,
+                  {
+                    opacity: zoomFeedbackOpacity,
+                    transform: [{ translateY: zoomFeedbackTranslateY }],
+                  },
+                ]}
+              >
+                <Text style={styles.zoomFeedbackText}>{zoomLabel}</Text>
+              </Animated.View>
               <View style={[styles.guideCorner, styles.guideCornerTopLeft]} />
               <View style={[styles.guideCorner, styles.guideCornerTopRight]} />
               <View style={[styles.guideCorner, styles.guideCornerBottomLeft]} />
@@ -313,58 +564,36 @@ export function HomeScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <View style={styles.bottomDock}>
-        <View style={styles.zoomDock}>
-          <View style={styles.zoomHeaderRow}>
-            {ultraWideSupported ? (
-              <View style={styles.zoomModesRow}>
-                <Pressable
-                  onPress={() => {
-                    setSelectedLens(ULTRA_WIDE_LENS);
-                    setZoomValue(0);
-                  }}
-                  style={[styles.zoomModeChip, ultraWideActive && styles.zoomModeChipActive]}
-                >
-                  <Text style={[styles.zoomModeText, ultraWideActive && styles.zoomModeTextActive]}>
-                    0.5x
-                  </Text>
-                </Pressable>
+      <View onLayout={handleZoneLayout('bottomDock')} style={styles.bottomDock}>
+        <View onLayout={handleZoneLayout('zoomDock')} style={styles.zoomDock}>
+          {ultraWideSupported ? (
+            <View style={styles.zoomModesRow}>
+              <Pressable
+                onPress={() => {
+                  setLensWithFeedback(ULTRA_WIDE_LENS);
+                }}
+                style={[styles.zoomModeChip, ultraWideActive && styles.zoomModeChipActive]}
+              >
+                <Text style={[styles.zoomModeText, ultraWideActive && styles.zoomModeTextActive]}>
+                  0.5x
+                </Text>
+              </Pressable>
 
-                <Pressable
-                  onPress={() => {
-                    setSelectedLens(WIDE_LENS);
-                    setZoomValue(0);
-                  }}
-                  style={[styles.zoomModeChip, !ultraWideActive && styles.zoomModeChipActive]}
-                >
-                  <Text style={[styles.zoomModeText, !ultraWideActive && styles.zoomModeTextActive]}>
-                    1x
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <View />
-            )}
-
-            <View style={styles.zoomPill}>
-              <Text style={styles.zoomPillText}>{zoomLabel}</Text>
+              <Pressable
+                onPress={() => {
+                  setLensWithFeedback(WIDE_LENS);
+                }}
+                style={[styles.zoomModeChip, !ultraWideActive && styles.zoomModeChipActive]}
+              >
+                <Text style={[styles.zoomModeText, !ultraWideActive && styles.zoomModeTextActive]}>
+                  1x
+                </Text>
+              </Pressable>
             </View>
-          </View>
-
-          <View
-            onMoveShouldSetResponder={() => true}
-            onResponderGrant={(event) => updateZoomFromTouch(event.nativeEvent.locationX)}
-            onResponderMove={(event) => updateZoomFromTouch(event.nativeEvent.locationX)}
-            onStartShouldSetResponder={() => true}
-            style={styles.zoomRail}
-          >
-            <View style={styles.zoomRailTrack} />
-            <View style={[styles.zoomFill, { width: zoomValue * ZOOM_TRACK_WIDTH }]} />
-            <View style={[styles.zoomThumb, { left: thumbLeft }]} />
-          </View>
+          ) : null}
         </View>
 
-        <View style={styles.bottomRow}>
+        <View onLayout={handleZoneLayout('bottomRow')} style={styles.bottomRow}>
           <Pressable
             onPress={() => {
               void handlePickImage();
@@ -393,6 +622,7 @@ export function HomeScreen({ navigation }: Props) {
 
         <Pressable
           onPress={openHistorySheet}
+          onLayout={handleZoneLayout('historyLauncher')}
           style={styles.historyLauncher}
         >
           {latestExpense ? (
@@ -414,7 +644,7 @@ export function HomeScreen({ navigation }: Props) {
             </View>
           )}
 
-          <Text style={styles.historyLauncherText}>Lich su</Text>
+          <Text style={styles.historyLauncherText}>History</Text>
           <Ionicons color="rgba(255, 255, 255, 0.72)" name="chevron-up" size={18} />
         </Pressable>
       </View>
@@ -456,6 +686,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#050505',
     paddingHorizontal: spacing.md,
+  },
+  ambientBlobTop: {
+    position: 'absolute',
+    top: -20,
+    right: -8,
+    width: 140,
+    height: 140,
+    borderRadius: 999,
+    backgroundColor: 'rgba(246, 177, 23, 0.05)',
+  },
+  ambientBlobBottom: {
+    position: 'absolute',
+    bottom: 90,
+    left: -24,
+    width: 150,
+    height: 150,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
   gestureSurface: {
     flex: 1,
@@ -511,43 +759,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: spacing.sm,
+    paddingTop: spacing.xs,
   },
   iconButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: ui.panel,
     borderWidth: 1,
-    borderColor: ui.goldBorder,
+    borderColor: ui.border,
   },
   summaryPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    minHeight: 50,
+    minHeight: 46,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm - 1,
     borderRadius: radius.pill,
-    backgroundColor: ui.gold,
+    backgroundColor: ui.panelStrong,
+    borderWidth: 1,
+    borderColor: ui.border,
   },
   summaryText: {
-    color: ui.ink,
+    color: ui.text,
     fontSize: typography.bodyLarge,
     fontWeight: '800',
   },
   avatarButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: ui.gold,
+    backgroundColor: ui.panelStrong,
+    borderWidth: 1,
+    borderColor: ui.border,
   },
   avatarText: {
-    color: ui.ink,
+    color: ui.text,
     fontSize: typography.bodyLarge,
     fontWeight: '800',
   },
@@ -555,19 +807,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  insightRow: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'stretch',
   },
   todayCard: {
-    width: '100%',
+    flex: 1.15,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: 'rgba(16, 16, 16, 0.94)',
+    paddingVertical: spacing.md - 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: ui.goldBorder,
+    borderColor: ui.border,
   },
   todayLabel: {
-    color: 'rgba(246, 177, 23, 0.82)',
+    color: ui.textSoft,
     fontSize: typography.eyebrow,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -579,11 +837,50 @@ const styles = StyleSheet.create({
     fontSize: typography.title,
     fontWeight: '800',
   },
+  recapCardCompact: {
+    flex: 0.85,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: ui.border,
+  },
+  recapCompactLabel: {
+    color: ui.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 4,
+  },
+  recapCompactTitle: {
+    color: ui.text,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 22,
+    marginBottom: spacing.sm,
+    flex: 1,
+  },
+  recapBadgeCompact: {
+    alignSelf: 'flex-start',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(246, 177, 23, 0.12)',
+    borderWidth: 1,
+    borderColor: ui.goldBorder,
+  },
+  recapBadgeText: {
+    color: ui.gold,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   previewWrap: {
     width: '100%',
     alignItems: 'center',
-    marginTop: spacing.lg,
-    marginBottom: spacing.xl,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
   },
   outsideMask: {
     ...StyleSheet.absoluteFillObject,
@@ -594,8 +891,8 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderRadius: 32,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'rgba(246, 177, 23, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     backgroundColor: '#090909',
     ...guideShadow,
   },
@@ -609,17 +906,26 @@ const styles = StyleSheet.create({
   guideOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
+  zoomFeedbackPill: {
+    position: 'absolute',
+    top: spacing.lg,
+    alignSelf: 'center',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: 'rgba(12, 12, 12, 0.76)',
+    borderWidth: 1,
+    borderColor: ui.border,
+  },
+  zoomFeedbackText: {
+    color: ui.text,
+    fontSize: typography.body,
+    fontWeight: '800',
+  },
   zoomDock: {
     width: '100%',
     alignItems: 'center',
     marginBottom: spacing.xl,
-  },
-  zoomHeaderRow: {
-    width: ZOOM_TRACK_WIDTH,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
   },
   zoomModesRow: {
     flexDirection: 'row',
@@ -630,71 +936,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    backgroundColor: 'rgba(12, 12, 12, 0.72)',
+    backgroundColor: ui.panel,
     borderWidth: 1,
-    borderColor: ui.goldBorder,
+    borderColor: ui.border,
   },
   zoomModeChipActive: {
-    backgroundColor: ui.gold,
+    backgroundColor: ui.goldSoft,
+    borderColor: ui.goldBorder,
   },
   zoomModeText: {
-    color: ui.gold,
+    color: ui.textSoft,
     fontSize: 12,
     fontWeight: '800',
   },
   zoomModeTextActive: {
-    color: ui.ink,
-  },
-  zoomPill: {
-    borderRadius: radius.pill,
-    minWidth: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    backgroundColor: 'rgba(12, 12, 12, 0.86)',
-    borderWidth: 1,
-    borderColor: ui.goldBorder,
-  },
-  zoomPillText: {
     color: ui.gold,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  zoomRail: {
-    width: ZOOM_TRACK_WIDTH,
-    height: 38,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(10, 10, 10, 0.72)',
-    borderWidth: 1,
-    borderColor: ui.goldBorder,
-  },
-  zoomRailTrack: {
-    position: 'absolute',
-    height: 4,
-    left: 10,
-    right: 10,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(246, 177, 23, 0.22)',
-  },
-  zoomFill: {
-    position: 'absolute',
-    left: 0,
-    top: 17,
-    bottom: 17,
-    borderRadius: radius.pill,
-    backgroundColor: ui.gold,
-  },
-  zoomThumb: {
-    position: 'absolute',
-    width: ZOOM_THUMB_SIZE,
-    height: ZOOM_THUMB_SIZE,
-    borderRadius: ZOOM_THUMB_SIZE / 2,
-    backgroundColor: ui.gold,
-    borderWidth: 2,
-    borderColor: colors.white,
   },
   guideCorner: {
     position: 'absolute',
@@ -731,7 +987,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 16,
   },
   bottomDock: {
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.lg,
     alignItems: 'center',
   },
   bottomRow: {
@@ -750,7 +1006,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: ui.panel,
     borderWidth: 1,
-    borderColor: 'rgba(246, 177, 23, 0.28)',
+    borderColor: ui.border,
   },
   shutterButton: {
     width: 96,
@@ -779,20 +1035,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
     gap: spacing.sm,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm - 1,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: ui.border,
   },
   historyThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     backgroundColor: '#161616',
   },
   historyThumbFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -803,18 +1063,18 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   historyThumbPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(20, 20, 20, 0.94)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
-    borderColor: ui.goldBorder,
+    borderColor: ui.border,
   },
   historyLauncherText: {
-    color: colors.white,
-    fontSize: 26,
+    color: ui.text,
+    fontSize: 18,
     fontWeight: '800',
   },
 });

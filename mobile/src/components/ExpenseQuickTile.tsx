@@ -27,7 +27,7 @@ export function ExpenseQuickTile({ expense, onPress }: ExpenseQuickTileProps) {
           )}
 
           <LinearGradient
-            colors={['transparent', 'rgba(8, 8, 8, 0.18)', 'rgba(8, 8, 8, 0.82)']}
+            colors={['transparent', 'rgba(8, 8, 8, 0.14)', 'rgba(8, 8, 8, 0.8)']}
             locations={[0, 0.48, 1]}
             style={styles.amountOverlay}
           >
@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: 'rgba(14, 14, 14, 0.94)',
     borderWidth: 1,
-    borderColor: 'rgba(246, 177, 23, 0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   mediaWrap: {
     position: 'relative',

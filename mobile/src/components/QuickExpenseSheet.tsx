@@ -12,11 +12,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { MoodPicker } from './MoodPicker';
 import { categories } from '../data/categories';
 import { useSession } from '../state/SessionContext';
 import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
-import type { Expense, ExpenseCategoryId } from '../types/domain';
+import type { Expense, ExpenseCategoryId, ExpenseMoodId } from '../types/domain';
 import { formatCurrencyVnd } from '../utils/format';
 
 interface QuickExpenseSheetProps {
@@ -43,6 +44,7 @@ export function QuickExpenseSheet({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [categoryId, setCategoryId] = useState<ExpenseCategoryId>('food');
+  const [moodId, setMoodId] = useState<ExpenseMoodId>('neutral');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +57,7 @@ export function QuickExpenseSheet({
     const result = await addExpense({
       amount: normalizedAmount,
       categoryId,
+      moodId,
       imageUri,
       note: note.trim(),
       occurredAt: new Date().toISOString(),
@@ -139,6 +142,9 @@ export function QuickExpenseSheet({
                   );
                 })}
               </View>
+
+              <Text style={styles.label}>Mood</Text>
+              <MoodPicker onChange={setMoodId} value={moodId} />
 
               <Text style={styles.label}>Note</Text>
               <TextInput

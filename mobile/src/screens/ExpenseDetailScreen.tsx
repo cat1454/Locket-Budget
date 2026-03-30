@@ -2,6 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Image, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScreenShell } from '../components/ScreenShell';
 import { categoryById } from '../data/categories';
+import { moodById } from '../data/moods';
 import type { RootStackParamList } from '../navigation/types';
 import { useSession } from '../state/SessionContext';
 import { radius, spacing, typography } from '../theme';
@@ -25,6 +26,7 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
 
   const currentExpense = expense;
   const category = categoryById[currentExpense.categoryId];
+  const mood = currentExpense.moodId ? moodById[currentExpense.moodId] : null;
 
   async function handleDelete() {
     const result = await deleteExpense(currentExpense.id);
@@ -74,6 +76,10 @@ export function ExpenseDetailScreen({ navigation, route }: Props) {
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Danh muc</Text>
           <Text style={styles.metaValue}>{category.label}</Text>
+        </View>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaLabel}>Mood</Text>
+          <Text style={styles.metaValue}>{mood?.label ?? 'Chua chon mood'}</Text>
         </View>
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>Ngay gio</Text>

@@ -1,12 +1,12 @@
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { ScreenShell } from '../components/ScreenShell';
 import { foundationDecisions, phaseOnePriority, phaseZeroOutputs } from '../data/projectInfo';
 import type { AppTabParamList } from '../navigation/types';
 import { useSession } from '../state/SessionContext';
 import { getPeriodTotals } from '../utils/analytics';
-import { formatCurrencyVnd, formatShortDate } from '../utils/format';
+import { formatCurrencyVnd, formatShortDate, formatTimeOfDay } from '../utils/format';
 import { radius, spacing, typography } from '../theme';
 import { colors } from '../theme/colors';
 
@@ -18,9 +18,14 @@ export function ProfileScreen(_: Props) {
     expenses,
     preferences,
     setAndroidFrontCameraMirrorFixEnabled,
+    setDailyReminderEnabled,
     signOut,
   } = useSession();
   const totals = getPeriodTotals(expenses);
+  const reminderTimeLabel = formatTimeOfDay(
+    preferences.dailyReminderHour,
+    preferences.dailyReminderMinute,
+  );
 
   return (
     <ScreenShell>
@@ -71,6 +76,37 @@ export function ProfileScreen(_: Props) {
             - {item}
           </Text>
         ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>Daily reminder</Text>
+      <View style={styles.blockCard}>
+        <View style={styles.preferenceRow}>
+          <View style={styles.preferenceCopy}>
+            <Text style={styles.preferenceLabel}>Daily reminder</Text>
+            <Text style={styles.preferenceNote}>
+              A local reminder appears every evening at {reminderTimeLabel} to help you log the
+              day before it ends.
+            </Text>
+          </View>
+
+          <Switch
+            onValueChange={(value) => {
+              void (async () => {
+                const result = await setDailyReminderEnabled(value);
+
+                if (!result.ok) {
+                  Alert.alert('Daily reminder', result.error ?? 'Could not update the reminder.');
+                }
+              })();
+            }}
+            thumbColor={preferences.dailyReminderEnabled ? colors.white : '#F4F4F5'}
+            trackColor={{
+              false: colors.border,
+              true: colors.accentStrong,
+            }}
+            value={preferences.dailyReminderEnabled}
+          />
+        </View>
       </View>
 
       {Platform.OS === 'android' ? (
